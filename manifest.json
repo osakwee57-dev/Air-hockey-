@@ -1,0 +1,19 @@
+
+{
+  "name": "Neon Air Hockey Pro",
+  "short_name": "NeonHockey",
+  "description": "High-performance offline arcade air hockey with neon aesthetics and AI challenges.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#06b6d4",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/811/811440.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

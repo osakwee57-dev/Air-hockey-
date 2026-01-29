@@ -1,0 +1,5 @@
+{
+  "name": "Neon Air Hockey - Pro Arcade (PWA Ready)",
+  "description": "A high-performance offline Air Hockey game with realistic physics, AI challenges, and a 5-round tournament system. Fully installable as a PWA.",
+  "requestFramePermissions": []
+}
