@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'neon-air-hockey-v3';
+const CACHE_NAME = 'neon-air-hockey-v4';
 const ASSETS = [
   './',
   'index.html',
@@ -16,7 +16,10 @@ const ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS);
+      // Use try-catch or individual add to ensure one failing asset doesn't break the whole SW
+      return Promise.allSettled(
+        ASSETS.map(asset => cache.add(asset))
+      );
     })
   );
   self.skipWaiting();
@@ -38,16 +41,15 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Only handle GET requests
   if (event.request.method !== 'GET') return;
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
+      // Cache-first strategy for performance and offline reliability
       if (cachedResponse) {
         return cachedResponse;
       }
       return fetch(event.request).then((response) => {
-        // Don't cache if not a valid response
         if (!response || response.status !== 200 || response.type !== 'basic') {
           return response;
         }
@@ -56,6 +58,9 @@ self.addEventListener('fetch', (event) => {
           cache.put(event.request, responseToCache);
         });
         return response;
+      }).catch(() => {
+        // Fallback if network fails and not in cache
+        return null;
       });
     })
   );
