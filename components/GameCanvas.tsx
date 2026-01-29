@@ -25,8 +25,8 @@ const GameCanvas: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(GameState.MENU);
   const [gameMode, setGameMode] = useState<GameMode>('1P');
   const [round, setRound] = useState(1);
-  const [scores, setScores] = useState({ p1: 0, p2: 0 }); // Rounds won
-  const [points, setPoints] = useState({ p1: 0, p2: 0 }); // Total Score (Round Wins * 100)
+  const [scores, setScores] = useState({ p1: 0, p2: 0 }); 
+  const [points, setPoints] = useState({ p1: 0, p2: 0 }); 
   const [roundMessage, setRoundMessage] = useState<string | null>(null);
   
   // Physics Refs
@@ -94,7 +94,6 @@ const GameCanvas: React.FC = () => {
         puckRef.current.dy = 0;
         puckHistoryRef.current = [];
         
-        // Reset mallets
         player1Ref.current.x = BOARD_WIDTH / 2;
         player1Ref.current.y = BOARD_HEIGHT - 120;
         player2Ref.current.x = BOARD_WIDTH / 2;
@@ -112,25 +111,39 @@ const GameCanvas: React.FC = () => {
     const dx = p.x - m.x;
     const dy = p.y - m.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
+    const minDistance = p.radius + m.radius;
     
-    if (distance < p.radius + m.radius) {
-      const angle = Math.atan2(dy, dx);
-      const overlap = (p.radius + m.radius) - distance;
-      
-      p.x += Math.cos(angle) * overlap;
-      p.y += Math.sin(angle) * overlap;
+    if (distance < minDistance) {
+      // 2. Anti-Stuck Logic: Check if puck is touching a wall
+      const isTouchingWall = 
+        p.x <= p.radius || 
+        p.x >= BOARD_WIDTH - p.radius || 
+        p.y <= p.radius || 
+        p.y >= BOARD_HEIGHT - p.radius;
 
-      // Transfer mallet momentum + base impact force scaled by speed multiplier
-      const impactFactor = 0.5 * speedMultiplier;
-      p.dx = (p.dx * 0.4) + (m.dx * impactFactor) + (Math.cos(angle) * 3 * speedMultiplier);
-      p.dy = (p.dy * 0.4) + (m.dy * impactFactor) + (Math.sin(angle) * 3 * speedMultiplier);
+      if (isTouchingWall) {
+        // If touching wall, push mallet back from puck instead of pushing puck through wall
+        const angle = Math.atan2(dy, dx);
+        const overlap = minDistance - distance;
+        m.x -= Math.cos(angle) * overlap;
+        m.y -= Math.sin(angle) * overlap;
+      } else {
+        // Normal resolution
+        const angle = Math.atan2(dy, dx);
+        const overlap = minDistance - distance;
+        p.x += Math.cos(angle) * overlap;
+        p.y += Math.sin(angle) * overlap;
 
-      // Clamp speed
-      const speed = Math.sqrt(p.dx * p.dx + p.dy * p.dy);
-      if (speed > currentMaxPuckSpeed) {
-        const ratio = currentMaxPuckSpeed / speed;
-        p.dx *= ratio;
-        p.dy *= ratio;
+        const impactFactor = 0.5 * speedMultiplier;
+        p.dx = (p.dx * 0.4) + (m.dx * impactFactor) + (Math.cos(angle) * 3 * speedMultiplier);
+        p.dy = (p.dy * 0.4) + (m.dy * impactFactor) + (Math.sin(angle) * 3 * speedMultiplier);
+
+        const speed = Math.sqrt(p.dx * p.dx + p.dy * p.dy);
+        if (speed > currentMaxPuckSpeed) {
+          const ratio = currentMaxPuckSpeed / speed;
+          p.dx *= ratio;
+          p.dy *= ratio;
+        }
       }
     }
   };
@@ -247,6 +260,16 @@ const GameCanvas: React.FC = () => {
       if (gameState === GameState.PLAYING) {
         const p = puckRef.current;
         
+        // 3. Global Safety: Check for NaN or extreme velocity
+        const speedSq = p.dx * p.dx + p.dy * p.dy;
+        if (isNaN(p.x) || isNaN(p.y) || isNaN(p.dx) || isNaN(p.dy) || speedSq > 50 * 50) {
+          p.x = BOARD_WIDTH / 2;
+          p.y = BOARD_HEIGHT / 2;
+          p.dx = 0;
+          p.dy = 0;
+          puckHistoryRef.current = [];
+        }
+
         // Track Mallet Velocities
         [player1Ref, player2Ref].forEach(ref => {
           ref.current.dx = ref.current.x - ref.current.prevX;
@@ -255,28 +278,17 @@ const GameCanvas: React.FC = () => {
           ref.current.prevY = ref.current.y;
         });
 
-        // Update History for trail
+        // Update History
         puckHistoryRef.current.push({ x: p.x, y: p.y });
         if (puckHistoryRef.current.length > MAX_TRAIL_LENGTH) puckHistoryRef.current.shift();
 
-        // 1. Safety Emergency Reset (Teleport check)
-        // If the puck gets stuck or clips entirely out of the valid area
-        if (p.x < -p.radius || p.x > BOARD_WIDTH + p.radius || p.y < -p.radius || p.y > BOARD_HEIGHT + p.radius) {
-          p.x = BOARD_WIDTH / 2;
-          p.y = BOARD_HEIGHT / 2;
-          p.dx = 0;
-          p.dy = 0;
-          puckHistoryRef.current = [];
-        }
-
-        // 2. Move Puck
+        // Move Puck
         p.x += p.dx;
         p.y += p.dy;
         p.dx *= FRICTION;
         p.dy *= FRICTION;
 
-        // 3. Wall Bounces & Robust Clamping
-        // Check X-axis
+        // Wall Bounces
         if (p.x - p.radius <= 0) {
           p.dx = Math.abs(p.dx) * 0.8;
           p.x = p.radius;
@@ -289,7 +301,6 @@ const GameCanvas: React.FC = () => {
         if (isGoal) {
           resetRound(isGoal);
         } else {
-          // Check Y-axis (only if not a goal)
           if (p.y - p.radius <= 0) {
             p.dy = Math.abs(p.dy) * 0.8;
             p.y = p.radius;
@@ -299,10 +310,9 @@ const GameCanvas: React.FC = () => {
           }
         }
 
-        // --- ENHANCED AI LOGIC ---
+        // AI logic
         if (gameMode === '1P') {
           const m = player2Ref.current;
-          
           if (p.y < BOARD_HEIGHT / 2) {
             const dx = p.x - m.x;
             const dy = (p.y - 20) - m.y;
@@ -316,24 +326,25 @@ const GameCanvas: React.FC = () => {
             m.x += Math.sign(dx) * Math.min(Math.abs(dx), currentAiSpeed * 0.6);
             m.y += Math.sign(dy) * Math.min(Math.abs(dy), currentAiSpeed * 0.6);
           }
-          
           m.x = Math.max(m.radius, Math.min(BOARD_WIDTH - m.radius, m.x));
           m.y = Math.max(m.radius, Math.min(BOARD_HEIGHT / 2 - m.radius - 10, m.y));
         }
 
-        // 4. Resolve Collisions with mallets
+        // Resolve Collisions
         resolveCollision(p, player1Ref.current);
         resolveCollision(p, player2Ref.current);
 
-        // 5. Final Position Safety Clamp
-        // Prevents overlap resolution from pushing puck through walls
-        p.x = Math.max(p.radius, Math.min(BOARD_WIDTH - p.radius, p.x));
+        // 1. Boundary Clamping: Hard containment before rendering
+        if (p.x < p.radius) p.x = p.radius;
+        if (p.x > BOARD_WIDTH - p.radius) p.x = BOARD_WIDTH - p.radius;
+        
+        // Only clamp Y if not in a goal state
         if (!isGoal) {
-          p.y = Math.max(p.radius, Math.min(BOARD_HEIGHT - p.radius, p.y));
+            if (p.y < p.radius) p.y = p.radius;
+            if (p.y > BOARD_HEIGHT - p.radius) p.y = BOARD_HEIGHT - p.radius;
         }
       }
 
-      // Draw Everything
       drawBoard(ctx);
       drawPuck(ctx, puckRef.current, puckHistoryRef.current);
       drawMallet(ctx, player1Ref.current);
@@ -412,7 +423,6 @@ const GameCanvas: React.FC = () => {
         </div>
       </div>
 
-      {/* Canvas Area */}
       <div className="relative z-10">
         <div className="absolute -inset-1 bg-gradient-to-b from-cyan-500 to-rose-500 rounded-xl blur opacity-20"></div>
         <div className="relative border-2 border-slate-800 shadow-2xl rounded-lg overflow-hidden bg-black">
@@ -426,7 +436,6 @@ const GameCanvas: React.FC = () => {
             style={{ touchAction: 'none' }}
           />
           
-          {/* Overlays */}
           {gameState === GameState.MENU && (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/90 backdrop-blur-md">
               <h2 className="text-5xl font-black text-white uppercase italic tracking-tighter mb-8 text-center leading-none">
@@ -443,7 +452,6 @@ const GameCanvas: React.FC = () => {
             </div>
           )}
 
-          {/* New Round / Speed Up Message */}
           {roundMessage && (
             <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/20 pointer-events-none">
               <div className="bg-white/10 backdrop-blur-md px-6 py-4 rounded-2xl border border-white/20 transform rotate-[-2deg] animate-bounce">
